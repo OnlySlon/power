@@ -10,7 +10,6 @@
 #include <fcntl.h> 
 #include <getopt.h>
 #include <poll.h>
-#include <iio.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
