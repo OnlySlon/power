@@ -1,0 +1,3 @@
+rm power power_cli
+gcc -o power ./power.c  -liio -lm -lad9361
+gcc -o power_cli ./power_cli.c
