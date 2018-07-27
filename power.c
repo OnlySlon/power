@@ -44,8 +44,8 @@ static const struct option options[] = {
 static const char *options_descriptions[] = {
     "Show this help and quit.",
     "Set RX gain in dB.",
-    "Set LO frequency in MHz.",
-    "Set sampling frequency in MHz.",
+    "Set LO frequency in kHz.",
+    "Set sampling frequency in kHz.",
     "Set number of samples to measure power",
     "SHM key"
 };
@@ -57,7 +57,7 @@ static void usage(void)
 {
     unsigned int i;
 
-    printf("Usage:\n\t" MY_NAME " -d 10000 -r 10 -l 1000 -f 20\n\t"
+    printf("Usage:\n\t" MY_NAME " -r 10 -l 1000 -f 20\n\t"
            "\nOptions:\n");
     for (i = 0; options[i].name; i++)
         printf("\t-%c, --%s\n\t\t\t%s\n",
@@ -67,8 +67,10 @@ static void usage(void)
 
 
 /* helper macros */
+
 #define MHZ(x) ((long long)(x*1000000.0 + .5))
 #define GHZ(x) ((long long)(x*1000000000.0 + .5))
+#define KHZ(x) ((long long)(x*1000.0 + .5))
 #define HZ(x) ((long long)(x*1.0 + .5))
 
 #define ASSERT(expr) { \
@@ -220,7 +222,7 @@ static void errchk(int v, const char* what)
     if (v < 0) {
         fprintf(stderr,
                 "Error %d writing to channel \"%s\"\nvalue may not be supported.\n", v, what);
-        shutdown_me();
+//        shutdown_me();
     }
 }
 
@@ -305,12 +307,10 @@ static bool get_lo_chan(struct iio_context *ctx, enum iodev d,
     switch (d) {
     // LO chan is always output, i.e. true
     case RX:
-        *chn = iio_device_find_channel(get_ad9361_phy(ctx), get_ch_name("altvoltage",
-                                       0), true);
+        *chn = iio_device_find_channel(get_ad9361_phy(ctx), get_ch_name("altvoltage", 0), true);
         return *chn != NULL;
     case TX:
-        *chn = iio_device_find_channel(get_ad9361_phy(ctx), get_ch_name("altvoltage",
-                                       1), true);
+        *chn = iio_device_find_channel(get_ad9361_phy(ctx), get_ch_name("altvoltage", 1), true);
         return *chn != NULL;
     default:
         ASSERT(0);
@@ -325,7 +325,7 @@ bool cfg_ad9361_streaming_ch(struct iio_context *ctx, struct stream_cfg *cfg,
     struct iio_channel *chn = NULL;
 
     // Configure phy and lo channels
-    // printf("* Acquiring AD9361 phy channel %d\n", chid);
+    printf("* Acquiring AD9361 phy channel %d\n", chid);
     if (!get_phy_chan(ctx, type, chid, &chn)) {
         return false;
     }
@@ -338,6 +338,7 @@ bool cfg_ad9361_streaming_ch(struct iio_context *ctx, struct stream_cfg *cfg,
         return false;
     }
     wr_ch_lli(chn, "frequency", cfg->lo_hz);
+    printf("set freq=%llu\n", cfg->lo_hz);
     return true;
 }
 
@@ -420,11 +421,11 @@ int main (int argc, char **argv)
     printf("* Init tcp server on port %i \n", port);
     int listen_fd = init_tcp(port);
 
-    printf("* Configuring transceiver at %ld MHz (lo) %ld MHz (fs) \n",lo_mhz,fs_mhz);
+    printf("* Configuring transceiver at %ld kHz (lo) %ld kHz (fs) \n", lo_mhz,fs_mhz);
     // RX stream config
-    rxcfg.bw_hz = MHZ(fs_mhz);   // 2 MHz rf bandwidth
-    rxcfg.fs_hz = MHZ(fs_mhz);   // 2.5 MS/s rx sample rate
-    rxcfg.lo_hz = MHZ(lo_mhz); // 2.5 GHz rf frequency
+    rxcfg.bw_hz = KHZ(fs_mhz);   // 2 MHz rf bandwidth
+    rxcfg.fs_hz = KHZ(fs_mhz);   // 2.5 MS/s rx sample rate
+    rxcfg.lo_hz = KHZ(lo_mhz); // 2.5 GHz rf frequency
     rxcfg.rfport = "A_BALANCED"; // port A (select for rf freq.)
 
     // printf("* Acquiring IIO context\n");
@@ -466,21 +467,22 @@ int main (int argc, char **argv)
     ASSERT((ctx = iio_create_context_from_uri(uri)) && "No context");
     ASSERT(iio_context_get_devices_count(ctx) > 0 && "No devices");
 
-    // printf("* Acquiring AD9361 streaming devices\n");
+    printf("* Acquiring AD9361 streaming devices\n");
     ASSERT(get_ad9361_stream_dev(ctx, RX, &rx) && "No rx dev found");
 
-    // printf("* Configuring AD9361 for streaming\n");
+    printf("* Configuring AD9361 for streaming\n");
     ASSERT(cfg_ad9361_streaming_ch(ctx, &rxcfg, RX, 0) && "RX port 0 not found");
 
-    // printf("* Initializing AD9361 IIO streaming channels\n");
+    printf("* Initializing AD9361 IIO streaming channels\n");
     ASSERT(get_ad9361_stream_ch(ctx, RX, rx, 0, &rx0_i) && "RX chan i not found");
     ASSERT(get_ad9361_stream_ch(ctx, RX, rx, 1, &rx0_q) && "RX chan q not found");
 
-    // printf("* Enabling IIO streaming channels\n");
+    printf("* Enabling IIO streaming channels\n");
     iio_channel_enable(rx0_i);
     iio_channel_enable(rx0_q);
     rxbuf = iio_device_create_buffer(rx, power_samples, false);
-    if (!rxbuf) {
+    if (!rxbuf) 
+    {
         perror("Could not create RX buffer");
         shutdown_me();
     }
@@ -501,7 +503,7 @@ int main (int argc, char **argv)
     }
 
     
-    struct shm_seg *seg =  shm_init(shm_key);
+    struct shm_seg *seg = (struct shm_seg *)  shm_init(shm_key);
     seg->db = 100500;
 
 
@@ -510,7 +512,7 @@ int main (int argc, char **argv)
     u_int16_t *imag_data = malloc(power_samples * sizeof(u_int16_t));
 
     double mean_channel_power = 0.0;
-    struct pollfd fds[2];
+    struct pollfd fds[3];
     fds[0].fd     = listen_fd;
     fds[0].events = POLLIN;
 
@@ -534,7 +536,7 @@ int main (int argc, char **argv)
         {
             seg->freq++;
             printf("* Changing freq to %u\n", seg->freq);
-            rxcfg.lo_hz = MHZ(seg->freq);
+            rxcfg.lo_hz = KHZ(seg->freq);
             lo_mhz = seg->freq;
             ASSERT(cfg_ad9361_streaming_ch(ctx, &rxcfg, RX, 0) && "RX port 0 not found");
         }
@@ -553,9 +555,12 @@ int main (int argc, char **argv)
             
         }
 
-        rc = poll(fds, nfds , 0);
-        if(fds[0].revents == POLLIN)
+	fds[1].fd     = tcp_fd;
+        fds[1].events = POLLIN;
+        rc = poll(fds, (tcp_fd == -1) ? 1 : 2 , 0);
+        if(fds[0].revents & POLLIN)
         {
+	    sin_size = 4;
             if ((tcp_fd = accept(listen_fd, (struct sockaddr *)&their_addr, &sin_size)) == -1) 
             {
                 perror("accept");
@@ -595,7 +600,15 @@ int main (int argc, char **argv)
         if (tcp_fd != -1)
         {
             static char str[0xFF];
-            sprintf(str, "%8.4f dB\n", log10(mean_channel_power)*10); 
+
+	    if (fds[1].revents & POLLIN)
+	    {
+		read(tcp_fd, str, 0xFF);
+		printf(">%s<", str);
+		fflush(0);
+	    }
+	    
+            sprintf(str, "%.1f\n", log10(mean_channel_power)*10); 
             if (send(tcp_fd, str, strlen(str), 0) == -1)
             {
                 close(tcp_fd);

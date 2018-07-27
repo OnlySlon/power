@@ -1,0 +1,4 @@
+#!/bin/bash
+cd /home/slon/power/
+./power -r 0 -l 1000000 -s 1000 -f 1000
+sleep 5
